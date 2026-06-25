@@ -16,3 +16,6 @@ venv/
 
 # Playwright 运行产物
 .playwright-mcp/
+
+# 本地配置（含个人绝对路径），不进公开仓库
+CLAUDE.md

@@ -53,18 +53,18 @@ except ImportError:
     sys.path.insert(0, site_out)
     import openpyxl
 
-# Source Excel path. Override with the RESUME_XLSX env var; otherwise falls back
-# to the maintainer's local default. (Keep personal paths out of version control.)
-EXCEL_PATH = os.environ.get(
-    "RESUME_XLSX",
-    os.path.expanduser("~/Desktop/找工作/简历制作/简历信息/网填简历详细版（英文版）_AI维护.xlsx"),
-)
-if not os.path.exists(EXCEL_PATH):
+# Source Excel path comes from the RESUME_XLSX env var (the skill reads it from
+# CLAUDE.md and passes it in). No path is hardcoded here.
+EXCEL_PATH = os.environ.get("RESUME_XLSX")
+if not EXCEL_PATH:
     raise SystemExit(
-        f"找不到 Excel: {EXCEL_PATH}\n"
-        "请设置环境变量 RESUME_XLSX 指向你的简历 Excel，例如:\n"
-        '  export RESUME_XLSX="/path/to/your_resume.xlsx"'
+        "未设置 RESUME_XLSX。请把简历 Excel 的路径写进项目 CLAUDE.md 的 Configuration，"
+        "或临时设置环境变量后再运行:\n"
+        '  RESUME_XLSX="/path/to/your_resume.xlsx" python3 scripts/dump_resume.py'
     )
+EXCEL_PATH = os.path.expanduser(EXCEL_PATH)
+if not os.path.exists(EXCEL_PATH):
+    raise SystemExit(f"找不到 Excel: {EXCEL_PATH}（检查 CLAUDE.md 里的 RESUME_XLSX 路径）")
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE_DIR = os.path.join(SKILL_DIR, "cache")
 os.makedirs(CACHE_DIR, exist_ok=True)

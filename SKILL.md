@@ -4,9 +4,10 @@ description: >-
   Use when the user wants to fill in a web-based job-application form / careers
   portal (Shopee, Greenhouse, Lever, Workday, Workable, Breezy, ByteDance careers,
   AshbyHQ, etc.) using their stored personal info. The skill reads the user's
-  maintained resume Excel (path via the RESUME_XLSX env var),
-  drives Playwright MCP to inspect the page, plans which value goes into which
-  field, fills the form, and stops before Submit so the user can review.
+  maintained resume Excel (path stored in CLAUDE.md, asked once on first run),
+  fully traverses the form first, semantically matches each question to the Excel
+  data, fills everything in one Playwright pass, and stops before Submit so the
+  user can review.
   Chinese triggers — 帮我填这个简历表 / 用我的信息填这个网申 / 填一下这个 careers 页 /
   把表单填完 / 这页要填的我帮你填掉 / 网申一下 / 填一下这个表 / 投这家公司. English triggers —
   autofill this application form / fill out this careers form / fill this job
@@ -17,43 +18,62 @@ description: >-
 
 # Web Form Autofill
 
-Drive a browser-based job application form to completion using the user's
-stored personal data, stopping before final submission.
+Drive a browser-based job-application form to completion from the user's local
+resume data: **survey the whole form first**, semantically match each question to
+the Excel, fill it in **one Playwright pass**, and **stop before Submit** so a
+human always reviews.
 
-## Core principles
+## Design principles (read first — these override anything below)
 
-1. **Never click Submit.** Stop at the last step and show the user what's about
-   to be sent. The whole point of this skill is to save typing while keeping
-   final review human-controlled.
-2. **Plan before clicking.** Snapshot the form, propose a complete fill plan
-   (every field → which value, every dropdown → which option, every upload →
-   which file path), get user confirmation, then execute.
-3. **Surface ambiguity.** If a field could match multiple sources (e.g. two
-   emails, two phone numbers, English vs Chinese name), ask the user which to
-   use. Do not silently guess.
-4. **Never paste sensitive data unprompted.** Full ID numbers, passport
-   numbers, salary expectations, references' phone numbers — only fill if the
-   form explicitly asks AND the user okays it for this application.
+1. **Recon before fill.** Load the full page. If the form is multi-step, find the
+   Next / Continue / 下一步 button and walk through *every* page, cataloguing every
+   field and question first. Only after seeing the whole form do you start matching
+   and filling.
+2. **Data lives in a local Excel — never hardcoded.** The Excel path is read from
+   this project's `CLAUDE.md`. If it isn't there, ask the user **once**, then write
+   it into `CLAUDE.md` so you never ask again. No path is ever hardcoded in SKILL.md
+   or the scripts.
+3. **Semantic match, not string match.** For each collected question, find the best
+   answer in the Excel data by *meaning* (not exact label text). Surface anything
+   ambiguous, sensitive, or judgment-based to the user.
+4. **One-shot fill via a generated Playwright script.** Build the script from the
+   actual fields/refs you saw in recon — never a fixed hardcoded template. Selectors
+   and values come from *this* form. Fill everything in a single execution.
+5. **Never submit.** After filling, stop, report "filled, not submitted", and ask the
+   user to review and click Submit themselves.
 
-## Workflow
+---
 
-### Step 1 — Refresh the resume cache
+## Step 0 — Resolve the Excel path (config, once)
 
-Run the dump script. It rebuilds `cache/resume.json` from the live Excel. This
-should be done every time the skill runs because the user maintains the Excel
-across sessions (new projects, updated phone, etc.).
+- Look in this project's `CLAUDE.md` for a `RESUME_XLSX: <path>` line under
+  `## Configuration`.
+- **If present**, use it.
+- **If absent**, ask the user: *"你的简历信息 Excel 在哪？给我完整路径。"* Then append
+  it to `CLAUDE.md`:
+  ```markdown
+  ## Configuration
+  RESUME_XLSX: /path/to/your_resume.xlsx
+  ```
+  Do not ask again on later runs.
+- Never hardcode a path in SKILL.md or in `scripts/`.
+
+## Step 1 — Refresh the resume cache
+
+Run the dump with the configured path:
 
 ```bash
-python3 scripts/dump_resume.py
+RESUME_XLSX="<path from CLAUDE.md>" python3 scripts/dump_resume.py
 ```
 
-The script outputs a summary line per language. The JSON has this shape:
+This rebuilds `cache/resume.json` from the live Excel (re-dump every run — the user
+keeps the Excel updated). The JSON shape:
 
 ```json
 {
   "zh": {
     "基本信息": { "姓名": "...", "常用邮箱": "...", ... },
-    "教育经历": [ {"_n": 1, "学历1-学校名称": "Nanyang Technological University", ...}, ... ],
+    "教育经历": [ {"_n": 1, "学历1-学校名称": "...", ...}, ... ],
     "实习经历": [ ... ],
     "工作经历": [ ... ],
     "项目经历": [ ... ],
@@ -64,121 +84,98 @@ The script outputs a summary line per language. The JSON has this shape:
 }
 ```
 
-### Step 2 — Read the field mapping reference
+## Step 2 — Recon: traverse the ENTIRE form first (before filling anything)
 
-```
-Read: references/field_mapping.md
-```
+1. `browser_navigate(url)` then `browser_snapshot()`.
+2. Catalogue every field on the current page: visible label, required (`*`), type
+   (text / textarea / dropdown / radio / checkbox / file upload / date picker), and
+   its `ref`.
+3. **If the form is multi-step** (Next / Continue / 下一步 buttons, or a step nav like
+   Infineon's section list), walk through each step, snapshotting each, until you
+   have seen **all** pages. Build ONE complete inventory of every question across all
+   steps. Do not fill anything yet.
+4. If you hit a login wall / CAPTCHA / SSO, **stop and hand back to the user** —
+   Playwright can't get past these reliably.
 
-This contains the canonical mapping from common ATS field names to JSON keys,
-plus boilerplate answers for visa / availability / "how did you hear" style
-questions. Always consult this before improvising.
+Only when the whole form is mapped do you move on.
 
-### Step 3 — Confirm which job folder this is for
+## Step 3 — Semantic match against the Excel data
 
-Ask the user (or infer from recent context) which `已投递公司/NN_<company>_<role>/`
-folder this application corresponds to. That folder contains:
+- Consult `references/field_mapping.md` for the canonical ATS-label → JSON-key map
+  and the boilerplate answers (visa / availability / "how did you hear").
+- For each catalogued field, find the best answer in `cache/resume.json` **by
+  meaning** — e.g. a box labelled "Tell us about your AI experience" maps to the
+  agent/LLM self-intro + relevant projects, not a literal key.
+- Mark these as **ASK USER** (never guess): visa/eligibility, salary, availability
+  dates, national ID / NRIC / passport, which resume PDF to upload, and any
+  free-text "why this company" box.
+- Produce ONE readable fill-plan table (Field | Value | Source), flag the ASK USER
+  rows, and get the user's confirmation:
+  > "下面是我准备填的内容，确认就开始填，要改的地方直接告诉我。"
 
-- `<Name>_resume.pdf` — the file to upload for the "Resume*" field
-- (sometimes) a cover letter
+## Step 4 — Fill in ONE shot with a generated Playwright script
 
-If no role-specific folder exists yet, ask whether to build one first (the
-right resume PDF improves the application meaningfully).
+After confirmation, generate a `mcp__playwright__browser_run_code_unsafe` script
+**from the actual fields you catalogued** — not a fixed template. The script adapts
+to this form's real selectors/labels every time.
 
-### Step 4 — Open the form and snapshot it
+Field-type playbook (compose only what this form actually has):
 
-```
-mcp__playwright__browser_navigate(url=<application_url>)
-mcp__playwright__browser_snapshot()
-```
+| Field type | How |
+|---|---|
+| text / textarea | `page.fill(selector, value)` (prefer stable `data-test-id` / `name`; fall back to label) |
+| custom dropdown | `getByRole('combobox', {name}).click()` → `getByRole('option', {name}).click()` |
+| native `<select>` | `page.selectOption(selector, value)` |
+| radio / checkbox | `getByRole('radio'/'checkbox', {name}).click()` |
+| country / phone code | open combobox, pick by `(+65) Singapore` style label |
+| file upload (resume) | `page.locator('input[type=file]').nth(i).setInputFiles(path)` |
 
-The snapshot is an accessibility tree. Read every form field. For each field
-note: the visible label, whether it's required (`*`), type (text / textarea /
-dropdown / file upload / date picker), and the `ref=eNNN` so you can target
-it later.
+Script conventions:
+- Wrap each field in try/catch; push a `✓ name` / `✗ name: error` line; return the
+  log + total time.
+- For **multi-step** forms, fill page 1 → click Next → fill page 2 → … inside the
+  script (or one script per step). **Never click the final Submit.**
+- Re-snapshot after dropdowns if the form re-renders dependent fields.
 
-### Step 5 — Build a fill plan
+## Step 5 — Stop before Submit + report
 
-Cross-reference the snapshot against `cache/resume.json` and the field
-mapping. Produce a single readable table for the user before touching the
-form. Example:
+- Take a final snapshot to verify values landed.
+- Report:
+  ```
+  ✅ 表单已填完，未提交。请人工检查后自行点 Submit。
+     - 已填: <list>
+     - 跳过 / 留空: <field> (<reason, e.g. need user input / intentionally blank>)
+     - Resume 已上传: <PDF path>
+  ```
+- **Never click Submit.** The user reviews and submits themselves.
 
-```
-| Field                  | Value                                        | Source                       |
-|------------------------|----------------------------------------------|------------------------------|
-| First Name*            | <given name>                                 | derived (姓名)               |
-| Last Name*             | <family name>                                | derived (姓名)               |
-| Email*                 | <school email>                               | en.基本信息.常用邮箱2        |
-| Contact Number*        | <SG mobile>                                  | 基本信息.手机号1             |
-| Current Location*      | Singapore                                    | mapping default              |
-| Education 1 — School*  | <university>                                 | en.教育经历[0].学历1-学校名称|
-| ...                    | ...                                          | ...                          |
-| Resume upload*         | 已投递公司/<NN_company_role>/<Name>_resume.pdf | latest job folder          |
-| Visa sponsorship*      | Yes — EP for full-time / no for intern       | field_mapping boilerplate    |
-| Availability period    | <ASK USER — confirm window>                  | needs confirmation           |
-```
+## Step 6 (optional) — Log the application
 
-Mark anything ambiguous with **ASK USER**. Then literally ask:
+Only on explicit user request after they confirm they submitted: append a row to the
+`跳转投递记录` sheet in the Excel (company, role, date, JD URL, status). Don't
+pre-log a submission you didn't witness.
 
-> "下面是我准备填的内容，确认就开始填，要改的地方直接告诉我。"
-
-### Step 6 — Fill the form
-
-After confirmation, execute. Prefer `mcp__playwright__browser_fill_form` for
-batching text fields; use `mcp__playwright__browser_click` +
-`browser_select_option` for dropdowns; use `mcp__playwright__browser_file_upload`
-for file fields.
-
-After each meaningful section (Personal Info → Education → Experience →
-Other Information), take a fresh snapshot and verify the values landed
-correctly. ATS forms commonly re-render fields when a dropdown changes —
-don't assume earlier fills are still intact.
-
-### Step 7 — Final review
-
-Take a final snapshot. Report:
-
-```
-✅ 表单已填完，未提交。请人工检查后点 Submit。
-   - 已填: First Name, Last Name, Email, Contact, Location, Education 1, 
-           Experience 1 (Tenth Global), Experience 2 (Bank), Skills (5), 
-           LinkedIn URL, Visa sponsorship, Availability
-   - 跳过 / 留空: CGPA (need user input), Expected Salary (intentionally blank),
-                  Transcript file (need user input)
-   - Resume 已上传: <PDF path>
-```
-
-Do **not** click Submit. The user clicks Submit themselves after reviewing.
-
-### Step 8 (optional) — Log the application
-
-If the user confirms they've submitted, append a row to the `跳转投递记录`
-sheet in the Excel (company name, role, date, JD URL, status). Do this only
-on explicit user request — don't pre-log a submission you didn't witness.
+---
 
 ## Things to watch for
 
-- **Forms that auto-populate from uploaded resume.** Many ATS systems
-  (Greenhouse, Workday) parse the uploaded PDF and pre-fill fields, then let
-  the user edit. In that case: upload the resume first, snapshot again, fill
-  only the gaps + correct any misparses.
-- **Multi-step forms.** Some platforms split into pages (Personal → Resume →
-  Q&A → Review). After each "Next" click, snapshot again and resume from
-  Step 5.
-- **CAPTCHAs / SSO logins / file pickers.** Stop and ask the user to handle
-  these — Playwright can't get past them reliably.
-- **Country / phone dropdowns.** These often use search-as-you-type. Click,
-  type `Singapore` or `65`, then click the option.
-- **Custom Q&A boxes** (e.g. "Why this company?", "Tell us about your AI
-  experience"). Do NOT use boilerplate. Either draft fresh based on the JD
-  and the user's recent projects, or hand back to the user with a draft.
+- **Forms that auto-populate from the uploaded resume** (Greenhouse, Workday): upload
+  the resume during recon, snapshot again, then fill only the gaps + fix misparses.
+- **Multi-step forms**: the recon (Step 2) must traverse all steps before filling.
+- **CAPTCHAs / SSO / OS file pickers**: stop and hand back to the user.
+- **Search-as-you-type country/phone dropdowns**: click, type `Singapore` or `65`,
+  then click the option.
+- **Free-text Q&A** ("Why this company?", "Tell us about your AI experience"): never
+  boilerplate — draft fresh from the JD + recent projects, or hand a draft to the user.
 
 ## Anti-patterns
 
-- ❌ Filling the form silently without showing the plan first.
+- ❌ Filling before you've surveyed the whole (multi-step) form.
+- ❌ Hardcoding the Excel path in SKILL.md or scripts (it lives in `CLAUDE.md`).
+- ❌ Reusing a fixed/hardcoded Playwright selector template instead of generating
+  from this form's recon.
 - ❌ Auto-clicking Submit "because the user said fill it".
-- ❌ Guessing visa / salary / availability without asking.
-- ❌ Pasting full ID numbers / passport numbers / family contact phones
-  unless the form requires them AND the user okays it for this submission.
-- ❌ Hardcoding values that should come from `cache/resume.json` (the user
-  updates the Excel — always re-dump).
+- ❌ Guessing visa / salary / availability / ID number / which resume without asking.
+- ❌ Pasting a full ID / passport / family phone unless the form requires it AND the
+  user okays it for this submission.
+- ❌ Filling from stale data — always re-dump `cache/resume.json` first.

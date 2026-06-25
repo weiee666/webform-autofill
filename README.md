@@ -24,25 +24,34 @@ page snapshot  ──►  field mapping  ──►  fill plan  ──►  browse
 - **`references/field_mapping.md`** — canonical mapping from common ATS field names
   to resume fields, plus boilerplate answers (visa / availability / "how did you hear").
 
-## Fill strategies
+## Workflow
 
-| Strategy | Speed | When |
-|---|---|---|
-| Step-by-step (snapshot → click → select) | slow, adaptive | unfamiliar form, first pass |
-| Batched Playwright script (`run_code`) | fast (seconds) | structure already known |
-| Standalone `.spec.js` + node | fastest, deterministic | same ATS, repeated use |
+1. **Config (once)** — the Excel path lives in `CLAUDE.md` (`RESUME_XLSX: <path>`).
+   On first run the agent asks for it and writes it there; never hardcoded.
+2. **Recon** — load the form and traverse *every* page of a multi-step form before
+   filling, building a complete inventory of all questions.
+3. **Semantic match** — map each question to the Excel data by meaning; flag
+   ambiguous / sensitive fields for the user.
+4. **One-shot fill** — generate a Playwright script *from this form's actual fields*
+   (not a fixed template) and fill everything in one pass.
+5. **Stop before Submit** — report what was filled and hand back for human review.
 
-> Selectors are stable **per ATS** (e.g. SmartRecruiters `data-test-id="..."`), so a
-> script written for one Infineon posting reuses across Infineon's other postings.
+> Selectors are stable **per ATS** (e.g. SmartRecruiters `data-test-id="..."`), so the
+> generated script's patterns reuse across that ATS's other postings.
 
 ## Setup
 
-1. Maintain your personal data in the source Excel (path configured in `dump_resume.py`).
-2. Run the dump to refresh the cache:
-   ```bash
-   python3 scripts/dump_resume.py
+1. Put your resume data in your source Excel.
+2. Set the path in `CLAUDE.md`:
+   ```markdown
+   ## Configuration
+   RESUME_XLSX: /path/to/your_resume.xlsx
    ```
-3. Point the agent at a careers-form URL; it fills and stops before Submit.
+3. Refresh the cache:
+   ```bash
+   RESUME_XLSX="/path/to/your_resume.xlsx" python3 scripts/dump_resume.py
+   ```
+4. Point the agent at a careers-form URL; it surveys, fills, and stops before Submit.
 
 ## Privacy
 
@@ -51,9 +60,9 @@ and is **git-ignored** — never commit it. Keep this repo's history free of per
 
 ## Roadmap
 
-- [ ] Bake the batched-script fast path into `SKILL.md`
+- [x] Survey-the-whole-form-first + one-shot generated-script fill in `SKILL.md`
+- [x] Excel path configurable via `CLAUDE.md` / `RESUME_XLSX` (no hardcoded path)
 - [ ] `references/ats_selectors.md` — stable selectors per ATS (Greenhouse / Lever / SmartRecruiters / Workday)
-- [ ] Make the Excel path configurable (env var / config) instead of hardcoded
 - [ ] Optional standalone runner that replays a saved fill plan without an LLM
 
 ## License
