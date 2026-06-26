@@ -53,22 +53,24 @@ except ImportError:
     sys.path.insert(0, site_out)
     import openpyxl
 
-# Source Excel path comes from the RESUME_XLSX env var (the skill reads it from
-# CLAUDE.md and passes it in). No path is hardcoded here.
-EXCEL_PATH = os.environ.get("RESUME_XLSX")
+# Excel path + cache location come from the persistent config (survives plugin
+# updates). No path is hardcoded here. See config.py.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import config  # noqa: E402
+
+EXCEL_PATH = config.get_xlsx()
 if not EXCEL_PATH:
     raise SystemExit(
-        "未设置 RESUME_XLSX。请把简历 Excel 的路径写进项目 CLAUDE.md 的 Configuration，"
-        "或临时设置环境变量后再运行:\n"
-        '  RESUME_XLSX="/path/to/your_resume.xlsx" python3 scripts/dump_resume.py'
+        "还没记住简历 Excel 的路径。先保存一次（之后不再问）:\n"
+        '  python3 scripts/config.py set "/path/to/your_resume.xlsx"\n'
+        "或临时用环境变量:  RESUME_XLSX=... python3 scripts/dump_resume.py"
     )
-EXCEL_PATH = os.path.expanduser(EXCEL_PATH)
 if not os.path.exists(EXCEL_PATH):
-    raise SystemExit(f"找不到 Excel: {EXCEL_PATH}（检查 CLAUDE.md 里的 RESUME_XLSX 路径）")
-SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CACHE_DIR = os.path.join(SKILL_DIR, "cache")
-os.makedirs(CACHE_DIR, exist_ok=True)
-OUT_PATH = os.path.join(CACHE_DIR, "resume.json")
+    raise SystemExit(
+        f"找不到 Excel: {EXCEL_PATH}\n"
+        '路径可能变了，重新保存:  python3 scripts/config.py set "/new/path.xlsx"'
+    )
+OUT_PATH = config.cache_file()
 
 SHEET_MAP = {
     "zh": "AI产品经理（中文）",

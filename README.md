@@ -45,16 +45,20 @@ page snapshot  ──►  field mapping  ──►  fill plan  ──►  browse
 ## Setup
 
 1. Put your resume data in your source Excel.
-2. Set the path in `CLAUDE.md`:
-   ```markdown
-   ## Configuration
-   RESUME_XLSX: /path/to/your_resume.xlsx
-   ```
-3. Refresh the cache:
+2. On first use the agent asks for the Excel path **once** and remembers it (stored
+   under `$CLAUDE_PLUGIN_DATA` or `~/.config/webform-autofill`, surviving plugin
+   updates). To set it yourself:
    ```bash
-   RESUME_XLSX="/path/to/your_resume.xlsx" python3 scripts/dump_resume.py
+   python3 scripts/config.py set "/path/to/your_resume.xlsx"
+   ```
+3. Refresh the cache (reads the saved path automatically):
+   ```bash
+   python3 scripts/dump_resume.py
    ```
 4. Point the agent at a careers-form URL; it surveys, fills, and stops before Submit.
+
+> Config & cache live in the data dir (`python3 scripts/config.py datadir`), not in
+> the repo — so nothing personal is committed and the path persists across updates.
 
 ## Privacy
 
@@ -98,7 +102,7 @@ Manage: `/plugin list`, `/plugin marketplace update weiee-plugins`,
 - [x] Survey-the-whole-form-first + one-shot generated-script fill in `SKILL.md`
 - [x] Excel path configurable via `CLAUDE.md` / `RESUME_XLSX` (no hardcoded path)
 - [x] Packaged as a Claude Code plugin marketplace
-- [ ] Persist config (RESUME_XLSX) across plugin updates via `${CLAUDE_PLUGIN_DATA}` instead of repo-root `CLAUDE.md` (installed plugins are copied to cache, so a repo-root config doesn't travel)
+- [x] Persistent config (`scripts/config.py`) under `$CLAUDE_PLUGIN_DATA` / `~/.config/webform-autofill` — Excel path remembered once, survives plugin updates
 - [ ] `references/ats_selectors.md` — stable selectors per ATS (Greenhouse / Lever / SmartRecruiters / Workday)
 - [ ] Optional standalone runner that replays a saved fill plan without an LLM
 

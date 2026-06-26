@@ -4,7 +4,7 @@ description: >-
   Use when the user wants to fill in a web-based job-application form / careers
   portal (Shopee, Greenhouse, Lever, Workday, Workable, Breezy, ByteDance careers,
   AshbyHQ, etc.) using their stored personal info. The skill reads the user's
-  maintained resume Excel (path stored in CLAUDE.md, asked once on first run),
+  maintained resume Excel (path remembered in a persistent config, asked once on first run),
   fully traverses the form first, semantically matches each question to the Excel
   data, fills everything in one Playwright pass, and stops before Submit so the
   user can review.
@@ -29,10 +29,10 @@ human always reviews.
    Next / Continue / 下一步 button and walk through *every* page, cataloguing every
    field and question first. Only after seeing the whole form do you start matching
    and filling.
-2. **Data lives in a local Excel — never hardcoded.** The Excel path is read from
-   this project's `CLAUDE.md`. If it isn't there, ask the user **once**, then write
-   it into `CLAUDE.md` so you never ask again. No path is ever hardcoded in SKILL.md
-   or the scripts.
+2. **Data lives in a local Excel — never hardcoded.** The Excel path is remembered
+   in a persistent config (`scripts/config.py`, stored under `$CLAUDE_PLUGIN_DATA`
+   or `~/.config/webform-autofill`, surviving plugin updates). If it isn't set, ask
+   the user **once**, save it, and never ask again. No path is hardcoded anywhere.
 3. **Semantic match, not string match.** For each collected question, find the best
    answer in the Excel data by *meaning* (not exact label text). Surface anything
    ambiguous, sensitive, or judgment-based to the user.
@@ -44,29 +44,30 @@ human always reviews.
 
 ---
 
-## Step 0 — Resolve the Excel path (config, once)
+## Step 0 — Resolve the Excel path (config, once — remembered forever)
 
-- Look in this project's `CLAUDE.md` for a `RESUME_XLSX: <path>` line under
-  `## Configuration`.
-- **If present**, use it.
-- **If absent**, ask the user: *"你的简历信息 Excel 在哪？给我完整路径。"* Then append
-  it to `CLAUDE.md`:
-  ```markdown
-  ## Configuration
-  RESUME_XLSX: /path/to/your_resume.xlsx
+The path is stored in a **persistent data dir that survives plugin updates**
+(`$CLAUDE_PLUGIN_DATA`, else `~/.config/webform-autofill`), via `scripts/config.py`.
+
+```bash
+python3 scripts/config.py get        # prints the saved path, or empty
+```
+
+- **If it prints a path**, use it — do not ask the user.
+- **If empty (first run)**, ask: *"你的简历信息 Excel 在哪？给我完整路径。"* Then save it:
+  ```bash
+  python3 scripts/config.py set "/path/to/your_resume.xlsx"
   ```
-  Do not ask again on later runs.
-- Never hardcode a path in SKILL.md or in `scripts/`.
+  Never ask again on later runs. Never hardcode a path in SKILL.md or `scripts/`.
 
 ## Step 1 — Refresh the resume cache
 
-Run the dump with the configured path:
-
 ```bash
-RESUME_XLSX="<path from CLAUDE.md>" python3 scripts/dump_resume.py
+python3 scripts/dump_resume.py
 ```
 
-This rebuilds `cache/resume.json` from the live Excel (re-dump every run — the user
+This reads the saved Excel path automatically and writes the cache into the data dir
+(`python3 scripts/config.py cachefile` prints its path). Re-dump every run — the user
 keeps the Excel updated). The JSON shape:
 
 ```json
@@ -117,7 +118,8 @@ If you hit a login wall / CAPTCHA / SSO, **stop and hand back to the user**.
 
 - Consult `references/field_mapping.md` for the canonical ATS-label → JSON-key map
   and boilerplate (visa / availability / "how did you hear").
-- For each field, pick the best answer from `cache/resume.json` **by meaning**, not
+- For each field, pick the best answer from the cached `resume.json` (its path is
+  `python3 scripts/config.py cachefile`) **by meaning**, not
   literal label (e.g. "Tell us about your AI experience" → the agent/LLM self-intro
   + relevant projects).
 - For each dropdown, choose the **exact option string** from the harvested options
@@ -195,11 +197,11 @@ pre-log a submission you didn't witness.
 - ❌ Looping / stalling on one stubborn control. Retry once, then hand it to the user.
 - ❌ Re-snapshotting after every field. Verify once at the end.
 - ❌ Filling before you've surveyed the whole (multi-step) form.
-- ❌ Hardcoding the Excel path in SKILL.md or scripts (it lives in `CLAUDE.md`).
+- ❌ Hardcoding the Excel path, or re-asking for it (it's saved via `scripts/config.py`).
 - ❌ Reusing a fixed/hardcoded Playwright selector template instead of generating
   from this form's recon.
 - ❌ Auto-clicking Submit "because the user said fill it".
 - ❌ Guessing visa / salary / availability / ID number / which resume without asking.
 - ❌ Pasting a full ID / passport / family phone unless the form requires it AND the
   user okays it for this submission.
-- ❌ Filling from stale data — always re-dump `cache/resume.json` first.
+- ❌ Filling from stale data — always re-dump the resume cache first.
