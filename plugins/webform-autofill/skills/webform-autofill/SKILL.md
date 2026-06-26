@@ -84,67 +84,85 @@ keeps the Excel updated). The JSON shape:
 }
 ```
 
-## Step 2 — Recon: traverse the ENTIRE form first (before filling anything)
+## Performance rule (why the steps below look the way they do)
 
-1. `browser_navigate(url)` then `browser_snapshot()`.
-2. Catalogue every field on the current page: visible label, required (`*`), type
-   (text / textarea / dropdown / radio / checkbox / file upload / date picker), and
-   its `ref`.
-3. **If the form is multi-step** (Next / Continue / 下一步 buttons, or a step nav like
-   Infineon's section list), walk through each step, snapshotting each, until you
-   have seen **all** pages. Build ONE complete inventory of every question across all
-   steps. Do not fill anything yet.
-4. If you hit a login wall / CAPTCHA / SSO, **stop and hand back to the user** —
-   Playwright can't get past these reliably.
+The slow path is **interacting with one control at a time** — every custom dropdown
+done as `click-open → snapshot → click-option` is 3 LLM round-trips, and snapshotting
+an *opened* dropdown can dump hundreds of options (e.g. a 254-country code list) into
+one huge tool result. **Collapse work into scripts:** one recon script that harvests
+*everything* (fields + every dropdown's options), then one fill script. Never click
+dropdowns open one-by-one across separate tool calls.
 
-Only when the whole form is mapped do you move on.
+## Step 2 — Recon: map the ENTIRE form in ONE script (don't click dropdowns one-by-one)
 
-## Step 3 — Semantic match against the Excel data
+Navigate, then run a **single `browser_run_code_unsafe` script** that returns a
+compact JSON inventory — do NOT lean on big `browser_snapshot` dumps. The script:
+
+1. Lists every field: a stable selector (`data-test-id` / `name` / `id` / label),
+   visible label, required (`*`), and type (text / textarea / select / combobox /
+   radio / checkbox / file / date).
+2. **Harvests every dropdown's options in the same pass**: for each custom combobox,
+   open it, read the option texts, close it (Esc) — so you get
+   `{ "Gender": ["Male","Female"], "Country of Residence": ["Singapore", ...], ... }`
+   in ONE round-trip instead of 3 per dropdown. Radios/checkboxes: list their labels.
+3. Returns one object: `{ fields:[...], options:{label:[...]}, multiStep:bool, nextButton:selector|null }`.
+
+**If the form is multi-step** (Next / Continue / 下一步, or a step nav): repeat this
+recon script per step until all steps are mapped. Build ONE inventory across all steps
+before filling anything.
+
+If you hit a login wall / CAPTCHA / SSO, **stop and hand back to the user**.
+
+## Step 3 — Semantic match against the Excel data (incl. exact dropdown options)
 
 - Consult `references/field_mapping.md` for the canonical ATS-label → JSON-key map
-  and the boilerplate answers (visa / availability / "how did you hear").
-- For each catalogued field, find the best answer in `cache/resume.json` **by
-  meaning** — e.g. a box labelled "Tell us about your AI experience" maps to the
-  agent/LLM self-intro + relevant projects, not a literal key.
-- Mark these as **ASK USER** (never guess): visa/eligibility, salary, availability
-  dates, national ID / NRIC / passport, which resume PDF to upload, and any
-  free-text "why this company" box.
-- Produce ONE readable fill-plan table (Field | Value | Source), flag the ASK USER
-  rows, and get the user's confirmation:
+  and boilerplate (visa / availability / "how did you hear").
+- For each field, pick the best answer from `cache/resume.json` **by meaning**, not
+  literal label (e.g. "Tell us about your AI experience" → the agent/LLM self-intro
+  + relevant projects).
+- For each dropdown, choose the **exact option string** from the harvested options
+  list (so the fill script selects precisely, with no extra look-up round-trip).
+- Mark as **ASK USER** (never guess): visa/eligibility, salary, availability dates,
+  national ID / NRIC / passport, which resume PDF, and any free-text "why this company".
+- Produce ONE fill-plan table (Field | Value | Source), flag ASK USER rows, confirm:
   > "下面是我准备填的内容，确认就开始填，要改的地方直接告诉我。"
 
 ## Step 4 — Fill in ONE shot with a generated Playwright script
 
-After confirmation, generate a `mcp__playwright__browser_run_code_unsafe` script
-**from the actual fields you catalogued** — not a fixed template. The script adapts
-to this form's real selectors/labels every time.
+After confirmation, generate a single `browser_run_code_unsafe` script **from this
+form's actual selectors + the chosen exact values** (not a fixed template).
 
-Field-type playbook (compose only what this form actually has):
-
-| Field type | How |
+| Field type | How (use the exact value/option chosen in Step 3) |
 |---|---|
-| text / textarea | `page.fill(selector, value)` (prefer stable `data-test-id` / `name`; fall back to label) |
-| custom dropdown | `getByRole('combobox', {name}).click()` → `getByRole('option', {name}).click()` |
+| text / textarea | `page.fill(selector, value)` |
+| custom dropdown | `getByRole('combobox',{name}).click()` → `getByRole('option',{name: <exact text>}).click()` |
 | native `<select>` | `page.selectOption(selector, value)` |
-| radio / checkbox | `getByRole('radio'/'checkbox', {name}).click()` |
-| country / phone code | open combobox, pick by `(+65) Singapore` style label |
-| file upload (resume) | `page.locator('input[type=file]').nth(i).setInputFiles(path)` |
+| radio / checkbox | `getByRole('radio'/'checkbox',{name: <exact label>}).click()` |
+| country / phone code | open once, pick the exact `(+65) Singapore`-style option |
+| file upload | `page.locator('input[type=file]').nth(i).setInputFiles(path)` |
 
 Script conventions:
-- Wrap each field in try/catch; push a `✓ name` / `✗ name: error` line; return the
-  log + total time.
-- For **multi-step** forms, fill page 1 → click Next → fill page 2 → … inside the
-  script (or one script per step). **Never click the final Submit.**
-- Re-snapshot after dropdowns if the form re-renders dependent fields.
+- Each field in its own try/catch; **retry a failed field once**, then record
+  `✗ <field>` and move on — **do not loop or stall** on a stubborn control.
+- Return a per-field log (`✓`/`✗`) + total time. Don't re-snapshot mid-script.
+- Multi-step: fill page 1 → click Next → fill page 2 … in one script (or one per step).
+  **Never click the final Submit.**
 
-## Step 5 — Stop before Submit + report
+## Step 4.5 — Hand stubborn fields back to the user
 
-- Take a final snapshot to verify values landed.
+If a field **fails twice** (failed in Step 4 and again on a single targeted retry),
+**stop fighting it.** List those fields with the exact value that should go in, and
+tell the user to fill those few by hand. Don't spend more round-trips on them.
+
+## Step 5 — Verify once + stop before Submit
+
+- Take **one** final snapshot (not per-field) to confirm values landed.
 - Report:
   ```
   ✅ 表单已填完，未提交。请人工检查后自行点 Submit。
      - 已填: <list>
-     - 跳过 / 留空: <field> (<reason, e.g. need user input / intentionally blank>)
+     - 需你手填(自动填失败): <field> = <value>
+     - 跳过 / 留空: <field> (<reason>)
      - Resume 已上传: <PDF path>
   ```
 - **Never click Submit.** The user reviews and submits themselves.
@@ -170,6 +188,12 @@ pre-log a submission you didn't witness.
 
 ## Anti-patterns
 
+- ❌ Opening dropdowns one at a time across separate tool calls (`click → snapshot →
+  click`). Harvest all options in the Step 2 recon script instead.
+- ❌ Relying on big `browser_snapshot` dumps (an opened country list = hundreds of
+  options). Extract a compact inventory with a script.
+- ❌ Looping / stalling on one stubborn control. Retry once, then hand it to the user.
+- ❌ Re-snapshotting after every field. Verify once at the end.
 - ❌ Filling before you've surveyed the whole (multi-step) form.
 - ❌ Hardcoding the Excel path in SKILL.md or scripts (it lives in `CLAUDE.md`).
 - ❌ Reusing a fixed/hardcoded Playwright selector template instead of generating
