@@ -103,6 +103,8 @@ Manage: `/plugin list`, `/plugin marketplace update weiee-plugins`,
 - [x] Excel path configurable via `CLAUDE.md` / `RESUME_XLSX` (no hardcoded path)
 - [x] Packaged as a Claude Code plugin marketplace
 - [x] Persistent config (`scripts/config.py`) under `$CLAUDE_PLUGIN_DATA` / `~/.config/webform-autofill` — Excel path remembered once, survives plugin updates
+- [x] Login handoff: pause at a login/SSO/CAPTCHA wall, let the user log in, resume on their "done"
+- [ ] Optional persistent browser profile (user-data-dir) so a login is remembered across runs
 - [ ] `references/ats_selectors.md` — stable selectors per ATS (Greenhouse / Lever / SmartRecruiters / Workday)
 - [ ] Optional standalone runner that replays a saved fill plan without an LLM
 

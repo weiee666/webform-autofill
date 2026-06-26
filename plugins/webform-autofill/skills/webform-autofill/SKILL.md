@@ -112,7 +112,32 @@ compact JSON inventory — do NOT lean on big `browser_snapshot` dumps. The scri
 recon script per step until all steps are mapped. Build ONE inventory across all steps
 before filling anything.
 
-If you hit a login wall / CAPTCHA / SSO, **stop and hand back to the user**.
+If you hit a login wall / SSO / CAPTCHA / OTP at any point, follow the **Login handoff**
+protocol below.
+
+## Login handoff — let the user log in, then resume
+
+A login / SSO / CAPTCHA / OTP wall can appear at navigation or mid-fill. The Playwright
+browser is a **real, visible window the user can take over**, so hand control to them
+and resume in the same session:
+
+1. **Stop.** Do **not** type the user's password, 2FA, or OTP yourself — credentials are
+   the human's to enter (and entering them is a prohibited action regardless).
+2. **Tell the user clearly**, e.g.:
+   > "这一步需要登录。请在已经打开的浏览器窗口里完成登录（账号密码 / 验证码都你来操作），
+   > 登录好之后跟我说一声『登录好了』，我接着填。"
+3. **Wait.** Do not re-navigate, poll, or click in a loop while the user is logging in —
+   that can disrupt their session. Just wait for their confirmation.
+4. **When the user says they're logged in**, take a fresh snapshot to confirm you're past
+   the wall (you see the form / dashboard, not the login page). If you're still on the
+   login page, tell the user it didn't take and ask them to retry — don't proceed.
+5. **Resume** from exactly where you left off (continue recon, or continue filling).
+
+Constraints:
+- The user must log in **in the Playwright-controlled window**, not their own separate
+  browser — it's a different browser instance with its own session.
+- Keep the browser session **alive** through the handoff. If it closes (tab goes blank),
+  the login is lost and you must re-navigate and hand off again.
 
 ## Step 3 — Semantic match against the Excel data (incl. exact dropdown options)
 
@@ -182,7 +207,9 @@ pre-log a submission you didn't witness.
 - **Forms that auto-populate from the uploaded resume** (Greenhouse, Workday): upload
   the resume during recon, snapshot again, then fill only the gaps + fix misparses.
 - **Multi-step forms**: the recon (Step 2) must traverse all steps before filling.
-- **CAPTCHAs / SSO / OS file pickers**: stop and hand back to the user.
+- **Login / SSO / CAPTCHA / OTP**: use the **Login handoff** protocol — let the user
+  log in in the browser window, wait for their "done", verify, then resume.
+- **OS file pickers**: can't be driven; use `setInputFiles` on the `<input type=file>` directly.
 - **Search-as-you-type country/phone dropdowns**: click, type `Singapore` or `65`,
   then click the option.
 - **Free-text Q&A** ("Why this company?", "Tell us about your AI experience"): never
