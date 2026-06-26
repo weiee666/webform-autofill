@@ -75,7 +75,7 @@ plugins/webform-autofill/
 
 **Local (development)** — add the repo directory, no push needed:
 ```text
-/plugin marketplace add /Users/admin/Desktop/python project/webform-autofill
+/plugin marketplace add /path/to/webform-autofill
 /plugin install webform-autofill@weiee-plugins
 /reload-plugins
 ```
