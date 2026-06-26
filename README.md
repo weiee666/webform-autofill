@@ -104,9 +104,12 @@ Manage: `/plugin list`, `/plugin marketplace update weiee-plugins`,
 - [x] Packaged as a Claude Code plugin marketplace
 - [x] Persistent config (`scripts/config.py`) under `$CLAUDE_PLUGIN_DATA` / `~/.config/webform-autofill` — Excel path remembered once, survives plugin updates
 - [x] Login handoff: pause at a login/SSO/CAPTCHA wall, let the user log in, resume on their "done"
-- [ ] Optional persistent browser profile (user-data-dir) so a login is remembered across runs
-- [ ] `references/ats_selectors.md` — stable selectors per ATS (Greenhouse / Lever / SmartRecruiters / Workday)
+- [ ] `references/ats_selectors.md` — stable selectors per ATS (Greenhouse / Lever / SmartRecruiters / Workday) to shortcut recon on repeat platforms
 - [ ] Optional standalone runner that replays a saved fill plan without an LLM
+
+> Not doing: a persistent browser profile. Each company is a separate account; you log
+> in once per site (and save credentials in your own password manager), so a shared
+> profile adds no value and only stores cookies on disk.
 
 ## License
 
