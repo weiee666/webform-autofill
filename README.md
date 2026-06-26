@@ -1,5 +1,8 @@
 # webform-autofill
 
+> A Claude Code **plugin marketplace** (`weiee-plugins`) distributing one plugin
+> (`webform-autofill`) that bundles a Skill. See [Install as a Claude Code plugin](#install-as-a-claude-code-plugin).
+
 An agent-driven assistant that fills web-based **job-application / careers forms**
 (Greenhouse, Lever, Workday, Workable, SmartRecruiters, ByteDance/Shopee careers, etc.)
 from a single maintained spreadsheet of personal data, and **stops before final
@@ -58,10 +61,44 @@ page snapshot  ──►  field mapping  ──►  fill plan  ──►  browse
 `cache/resume.json` contains personal data (name, email, phone, ID number, address)
 and is **git-ignored** — never commit it. Keep this repo's history free of personal data.
 
+## Install as a Claude Code plugin
+
+This repo is both a **marketplace** and a single **plugin**:
+
+```
+.claude-plugin/marketplace.json                 # marketplace catalog (weiee-plugins)
+plugins/webform-autofill/
+├── .claude-plugin/plugin.json                  # plugin manifest
+└── skills/webform-autofill/                     # the bundled Skill
+    ├── SKILL.md  ├── scripts/  └── references/
+```
+
+**Local (development)** — add the repo directory, no push needed:
+```text
+/plugin marketplace add /Users/admin/Desktop/python project/webform-autofill
+/plugin install webform-autofill@weiee-plugins
+/reload-plugins
+```
+
+**From GitHub (after pushing)**:
+```text
+/plugin marketplace add weiee666/webform-autofill
+/plugin install webform-autofill@weiee-plugins
+```
+
+Manage: `/plugin list`, `/plugin marketplace update weiee-plugins`,
+`/plugin disable webform-autofill@weiee-plugins`.
+
+> After editing the skill, run `/plugin marketplace update weiee-plugins` then
+> `/reload-plugins` — installed plugins are **copied** into `~/.claude/plugins/cache/`,
+> so live repo edits don't apply until you update.
+
 ## Roadmap
 
 - [x] Survey-the-whole-form-first + one-shot generated-script fill in `SKILL.md`
 - [x] Excel path configurable via `CLAUDE.md` / `RESUME_XLSX` (no hardcoded path)
+- [x] Packaged as a Claude Code plugin marketplace
+- [ ] Persist config (RESUME_XLSX) across plugin updates via `${CLAUDE_PLUGIN_DATA}` instead of repo-root `CLAUDE.md` (installed plugins are copied to cache, so a repo-root config doesn't travel)
 - [ ] `references/ats_selectors.md` — stable selectors per ATS (Greenhouse / Lever / SmartRecruiters / Workday)
 - [ ] Optional standalone runner that replays a saved fill plan without an LLM
 

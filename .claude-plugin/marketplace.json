@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "weiee-plugins",
+  "owner": {
+    "name": "weiee666"
+  },
+  "description": "Wei Bo's personal Claude Code plugins.",
+  "plugins": [
+    {
+      "name": "webform-autofill",
+      "source": "./plugins/webform-autofill",
+      "description": "Survey a job-application form, semantically match each field to your local resume Excel, fill it in one Playwright pass, and stop before Submit for human review.",
+      "version": "0.1.0",
+      "author": {
+        "name": "weiee666"
+      }
+    }
+  ]
+}

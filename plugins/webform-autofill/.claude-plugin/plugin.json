@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin.json",
+  "name": "webform-autofill",
+  "displayName": "Web Form Autofill",
+  "version": "0.1.0",
+  "description": "Survey a job-application / careers form, semantically match each field to your local resume Excel, fill it in one Playwright pass, and stop before Submit so you review before sending.",
+  "author": {
+    "name": "weiee666"
+  },
+  "homepage": "https://github.com/weiee666/webform-autofill",
+  "repository": "https://github.com/weiee666/webform-autofill",
+  "license": "MIT",
+  "keywords": ["job-application", "ats", "autofill", "playwright", "careers", "resume"]
+}
