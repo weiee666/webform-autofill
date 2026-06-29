@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin.json",
   "name": "webform-autofill",
   "displayName": "Web Form Autofill",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Survey a job-application / careers form, semantically match each field to your local resume Excel, fill it in one Playwright pass, and stop before Submit so you review before sending.",
   "author": {
     "name": "weiee666"
