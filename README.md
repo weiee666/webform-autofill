@@ -27,20 +27,37 @@ page snapshot  ──►  field mapping  ──►  fill plan  ──►  browse
 - **`references/field_mapping.md`** — canonical mapping from common ATS field names
   to resume fields, plus boilerplate answers (visa / availability / "how did you hear").
 
+## Browser tooling
+
+Driven by the **[agent-browser](https://github.com/vercel-labs/agent-browser) CLI**
+(Vercel Labs, native Rust) — just shell commands, no MCP. **Playwright CLI** is the
+last-resort fallback for widgets agent-browser can't drive. The Playwright MCP is not used.
+
+```bash
+npm install -g agent-browser   # or: brew install agent-browser
+agent-browser install          # one-time: download Chrome for Testing
+```
+
+`agent-browser open <url> --headed` shows a real window the user can take over (for the
+login handoff), and a background daemon keeps the session alive across CLI calls.
+
 ## Workflow
 
-1. **Config (once)** — the Excel path lives in `CLAUDE.md` (`RESUME_XLSX: <path>`).
-   On first run the agent asks for it and writes it there; never hardcoded.
-2. **Recon** — load the form and traverse *every* page of a multi-step form before
-   filling, building a complete inventory of all questions.
-3. **Semantic match** — map each question to the Excel data by meaning; flag
-   ambiguous / sensitive fields for the user.
-4. **One-shot fill** — generate a Playwright script *from this form's actual fields*
-   (not a fixed template) and fill everything in one pass.
-5. **Stop before Submit** — report what was filled and hand back for human review.
+1. **Config (once)** — the Excel path is remembered by `scripts/config.py` (stored under
+   `$CLAUDE_PLUGIN_DATA` or `~/.config/webform-autofill`). On first run the agent asks
+   once and saves it; never hardcoded.
+2. **Recon** — `open --headed` + `snapshot`; traverse *every* page of a multi-step form
+   and harvest dropdown options before filling.
+3. **Semantic match** — map each question to the Excel data by meaning; flag ambiguous /
+   sensitive fields for the user.
+4. **One-shot fill** — one `agent-browser batch` built *from this form's actual refs*
+   (not a fixed template).
+5. **Login handoff** — pause at a login/SSO/CAPTCHA wall, the user logs in in the window,
+   resume on their "done".
+6. **Stop before Submit** — report what was filled and leave it for human review.
 
 > Selectors are stable **per ATS** (e.g. SmartRecruiters `data-test-id="..."`), so the
-> generated script's patterns reuse across that ATS's other postings.
+> batch's patterns reuse across that ATS's other postings.
 
 ## Setup
 
