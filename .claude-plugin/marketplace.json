@@ -9,7 +9,7 @@
     {
       "name": "webform-autofill",
       "source": "./plugins/webform-autofill",
-      "description": "Survey a job-application form, semantically match each field to your local resume Excel, fill it in one Playwright pass, and stop before Submit for human review.",
+      "description": "Survey a job-application form, semantically match each field to your local resume Excel, fill it in one agent-browser batch, and stop before Submit for human review.",
       "version": "0.2.0",
       "author": {
         "name": "weiee666"
